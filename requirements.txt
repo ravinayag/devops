@@ -1,0 +1,8 @@
+numpy==1.13.3
+django
+django-chartjs
+biopython
+selenium
+bs4
+pdfkit
+plotly==3.10.0

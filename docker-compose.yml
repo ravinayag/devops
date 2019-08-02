@@ -1,0 +1,17 @@
+version: "3"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docker_django
+    stdin_open: true
+    tty: true
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    command: sh -c "./start.sh"
+    #command: sh -c "python manage.py runserver 0.0.0.0:8000"
+    command: sh -c "python --version"
