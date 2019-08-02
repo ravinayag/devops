@@ -25,7 +25,6 @@ EXPOSE 8000
 
 RUN apt-get update
 RUN apt install hmmer -y
-RUN apt install 
 RUN pip install -r requirements.txt
 
 COPY ./app /app
