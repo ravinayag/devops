@@ -4,7 +4,7 @@
 
 1, Once you created Dockerfile and Docker compose, you have to Run  below to build and make the container up 
 ```bash
-docker-compose --build & docker-compose up
+docker-compose --build && docker-compose up
 ```
 To Stop Container 
 ```bash
