@@ -1,4 +1,6 @@
 FROM continuumio/miniconda3
+LABEL maintainer="ravinayag@gmail.com"
+
 RUN conda create -n freelancer python=3.6.6 -y
 RUN echo "source activate freelancer" > ~/.bashrc
 ENV PATH /opt/conda/envs/freelancer/bin:$PATH
