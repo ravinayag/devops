@@ -42,7 +42,7 @@ service tftp
         cps                     = 100 2
         flags                   = IPv4
 }
-``
+```
 
 #### dhcpd 
 Configure the dhcp server as below   you can lookat the image file 
