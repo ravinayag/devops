@@ -13,14 +13,75 @@ Client machines :  vmware or physical machines running machines with UEFI based.
 
 I have skipped the Installation of Linux server and ip configuarations. I you have to configure a static ip for dhcp services.
 
-```
-yum install syslinux
-lab:~ # yum install syslinux tftp-server samba samba-common samba-winbind vsftpd httpd
-lab:~ # yum install samba samba-common samba-winbind 
+``` lab:~ # yum install  xinetd tftp-server  dhcp syslinux samba samba-common samba-winbind vsftpd httpd  -y```
 
-```
-Note : vsftpd and httpd used for file transfer while network installation either in linux or windows systems.
+Note: vsftpd and httpd used for file transfer while network installation either in linux or windows systems.
 
 After spending several days on  research about UEFI + Linux PXE Server + windows pxe boot.
 
 I used iPXE to cover the above requirment you can get more info about this. http://ipxe.org. My special thanks to this team
+
+Let configure the required services from the above package installations.
+
+
+#### tftpserver
+configure tftp server 
+vi  /etc/xinet.d/tftp
+and modify "disable = no" from yes
+
+#### dhcpd 
+Configure the dhcp server as below   you can lookat the image file 
+
+```
+allow booting;
+allow bootp;
+default-lease-time 600;
+max-lease-time 7200;
+
+log-facility local7;
+
+option space pxelinux;
+option pxelinux.magic code 208 = string;
+option pxelinux.configfile code 209 = text;
+option pxelinux.pathprefix code 210 = text;
+option pxelinux.reboottime code 211 = unsigned integer 32;
+option architecture-type code 93 = unsigned integer 16;
+option client-arch code 93 = unsigned integer 16;
+
+subnet 192.168.23.0 netmask 255.255.255.0 {
+  range 192.168.23.51 192.168.23.60;
+  option subnet-mask 255.255.255.0;
+  option routers 192.168.23.130, 192.168.23.2;
+
+        class "pxeclients" {
+          match if substring (option vendor-class-identifier, 0, 9) = "PXEClient";
+          next-server 192.168.23.130;
+
+        if option architecture-type = 00:06 {
+            filename "uefi/bootia32.efi";
+        } else  if option architecture-type!= 00:00 {
+            filename "iPXE/ipxe.efi";
+#           filename "http:/192.168.23.130/winboot/pxelinux.0";
+        } else if option architecture-type = 00:07 or option architecture-type = 00:09 {
+            filename "pxelinux.cfg/grubx64.efi";
+        } else {
+            filename "pxelinux.0";
+
+          }
+        }
+
+}
+```
+
+
+#### syslinux 
+
+
+#### ipxe & 
+Get the ipxe.efi  and place it to /var/lib/tftpd.
+```
+wget http://boot.ipxe.org/ipxe.efi
+wget http://git.ipxe.org/releases/wimboot/wimboot-latest.zip
+
+```
+
