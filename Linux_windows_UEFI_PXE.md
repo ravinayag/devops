@@ -28,6 +28,21 @@ Let configure the required services from the above package installations.
 configure tftp server 
 vi  /etc/xinet.d/tftp
 and modify "disable = no" from yes
+```
+service tftp
+{
+        socket_type             = dgram
+        protocol                = udp
+        wait                    = yes
+        user                    = root
+        server                  = /usr/sbin/in.tftpd
+        server_args             = -s /var/lib/tftpboot
+        disable                 = no               <<<<<<<<<<<<< modify
+        per_source              = 11
+        cps                     = 100 2
+        flags                   = IPv4
+}
+``
 
 #### dhcpd 
 Configure the dhcp server as below   you can lookat the image file 
@@ -61,7 +76,7 @@ subnet 192.168.23.0 netmask 255.255.255.0 {
             filename "uefi/bootia32.efi";
         } else  if option architecture-type!= 00:00 {
             filename "iPXE/ipxe.efi";
-#           filename "http:/192.168.23.130/winboot/pxelinux.0";
+            #filename "http:/192.168.23.130/winboot/pxelinux.0";
         } else if option architecture-type = 00:07 or option architecture-type = 00:09 {
             filename "pxelinux.cfg/grubx64.efi";
         } else {
@@ -76,6 +91,9 @@ subnet 192.168.23.0 netmask 255.255.255.0 {
 
 #### syslinux 
 
+Copy files from  syslinux directory to tftpboot directory
+
+```#cp -r /usr/share/syslinux/* /var/lib/tftpboot/```
 
 #### ipxe & 
 Get the ipxe.efi  and place it to /var/lib/tftpd.
