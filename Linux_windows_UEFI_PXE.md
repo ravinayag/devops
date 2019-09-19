@@ -1,6 +1,6 @@
 # PXE SERVER LINUX WINDOWS 10 /2019 UEFI BIOS
 
-[Contribution guidelines for this project](docs/pxelinwinueficontri)
+[Contribution guidelines for this project](devops/pxelinwinueficontri)
 
 I have asked to setup the Linux PXE server with windows 10 / 2019 bootable clients with UEFI BIOS. since im not  WIN SA, i have created this one stop ref doc for implementing UEFI based BIOs windows boot from Linux PXE server. After spending several days on research about UEFI + Linux PXE Server + windows pxe boot. I hope this will help SA community if come accros with commbination.
 
