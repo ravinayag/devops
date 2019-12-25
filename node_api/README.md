@@ -3,13 +3,15 @@
 
 ### A simple example : How to create RESTful API for CRUD operation using mysql database. 
 
-1   Create a node js related files
+1,  Create a node js related files
 
-2   Create the Database & table
+2,  Create the Database & table
 
-3   Add, Fetch, Edit, Delete Record using restAPI call into mysql database
+3,  Run node service and do Add, Fetch, Edit, Delete Record using restAPI call into mysql database
 
 #### 1 :  Create a node js related files
+1a,  Have a project directory on your own, under directory create new file named : server.js
+This file contains your db connection file, json format and db query for all CURD Operations.
 ```
 $ vi server.js
 var http = require("http");
@@ -22,7 +24,7 @@ var bodyParser = require('body-parser');
 var connection = mysql.createConnection({
   host     : 'localhost',
   user     : 'root',
-  password : 'Password',
+  password : 'password',
   database : 'kstest'
 });
 
@@ -99,7 +101,42 @@ app.delete('/learningtab', function (req, res) {
         });
 });
 ```
+### 1b : Create Package.json file
+The package file contains all dependency package that you need to run for this service. running npm install will download all related node library to run the service.
+
+```
+$ vi package.json
+{
+  "name": "nodejs-restapi",
+  "version": "1.0.0",
+  "description": "Simple code for  nodejs to create rest call using MySQL",
+  "main": "index.js",
+  "scripts": {
+    "start": "node ./index.js",
+    "start-dev": "nodemon ./index.js"
+  },
+  "author": {
+    "name": "Ravi",
+    "email": "contact@knowledgesociety.tech",
+    "url": "http://www.knowledgesociety.tech/"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^1.16.1",
+    "express": "^4.14.1",
+    "nodemon": "^2.0.1",
+    "mysql": "^2.13.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.1"
+  }
+}
+```
+
+
 #### 2 :  Create the Database & table manually 
+Create database and table ready for access. I have created a single row for read purpose.
+
 Login to mysqldb 
 ```
 $ mysql -u root -p
@@ -143,3 +180,20 @@ mysql> select * from learntab;
 1 row in set (0.00 sec)
 
 ```
+once the Database set,  move on step 3 to run the nodejs service
+
+#### 3, under project directory,  run npm commands
+
+$ npm install 
+$ npm start 
+
+open a browser or postman to do CURD Operataions
+
+http://yourip:8000/learntab/
+
+curl -x  http://yourip:8000/learntab/
+
+
+
+
+
