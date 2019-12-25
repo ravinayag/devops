@@ -10,7 +10,8 @@
 3   Add, Fetch, Edit, Delete Record using restAPI call into mysql database
 
 #### 1 :  Create a node js related files
-$ cat server.js
+```
+$ vi server.js
 var http = require("http");
 var express = require('express');
 var app = express();
@@ -97,9 +98,10 @@ app.delete('/learningtab', function (req, res) {
           res.end('Record has been deleted!');
         });
 });
-
+```
 #### 2 :  Create the Database & table manually 
 Login to mysqldb 
+```
 $ mysql -u root -p
 mysql> create database test;
 
@@ -140,4 +142,4 @@ mysql> select * from learntab;
 +----+------------+------------+---------+------------+---------------------+---------------------+
 1 row in set (0.00 sec)
 
-
+```
