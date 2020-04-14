@@ -1,0 +1,20 @@
+--- 
+- hosts: demo
+  user: ansible-user
+  become: true
+  vars:
+    userlist: [admin, guest, administrator]
+
+
+  tasks:
+     - name: adding users to ftpusers not unix users.
+       lineinfile:
+         path: /etc/vsftpd.userlist
+
+       debug:
+         msg: "user list: {{ item }}"
+       with_items:
+         - "{{ userlist }}"
+            - admin1
+            - guest1
+            - admin1
