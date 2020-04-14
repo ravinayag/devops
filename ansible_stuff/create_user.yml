@@ -1,0 +1,79 @@
+
+
+
+---
+- hosts: demo
+#  hosts: localhost   ## enable only if you want to run locally 
+#  connections: local
+
+   ignore_errors: true
+   vars:
+     - password1: "{{ 'abc123' | password_hash('sha512') }}"
+   gather_facts: no
+   remote_user: root     ## change to any user having acccess to remote servers and you know password.
+   become: true
+
+   # Add user 
+   tasks:
+      - name: Add a new user named ansible-user
+           user:
+                name: ansible-user1
+                shell: /bin/bash
+                password: "{{ password1 }}"
+                groups: sudo
+                state: present
+                system: no
+                createhome: yes
+                home: /home/ansible-user1
+                
+# Add to sudoers list.
+      - name: "Add ansible-user to sudoers list"
+        lineinfile:
+          dest: "/etc/sudoers" 
+          state: "present"
+          regexp: "^root    ALL=(ALL)       ALL"
+          line: "ansible-user1 ALL=(ALL) NOPASSWD: ALL"
+          backup=yes
+
+# Deploy  root ssh pubkey to the user in ssh/authorized keys so user can login without password from control server.
+      - name: Deploying SSH Key
+           authorized_key: 
+              user: ansible-user1
+              key: "{{ lookup('file', '/root/.ssh/id_rsa.pub') }}"
+              state: present
+              
+# Optional 1; Disable password authentication only of enabled and restart ssh
+      - name: Disable Password Authentication
+        lineinfile:
+              dest=/etc/ssh/sshd_config
+              regexp='^PasswordAuthentication'
+              line="PasswordAuthentication no"
+              state=present
+              backup=yes
+        notify:
+          - Restarting ssh
+
+# Optional 2; Disable direct root login  via ssh and restart ssh
+      - name: Disable Root Login
+        lineinfile: 
+              dest=/etc/ssh/sshd_config
+              regexp='^PermitRootLogin'
+              line="PermitRootLogin no"
+              state=present
+              backup=yes
+        notify:
+          - Restarting ssh
+# Declare sshd for restart call
+      handlers:
+      - name: Restarting ssh
+        service:
+          name: sshd
+          state: restarted
+          
+          
+## How to run this playbook 
+#If its root, provide root password when it ask for ssh password
+# ansible-playbook create_user.yml  --ask-pass  
+
+# If its Sudo access user, then provide user passwd for sudo access when asked.
+# sudo ansible-playbook create_user.yml -v --ask-become-pass --ask-pass
