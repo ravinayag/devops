@@ -1,0 +1,34 @@
+--- # condition playbook
+- hosts: all
+#- hosts: localhost
+#  connection: local
+  become: true
+  vars:
+  - password1: "{{ 'abc123' | password_hash('md5') }}"
+  - password2: "{{ 'abc123' | password_hash('sha256') }}"
+  - password3: "{{ 'abc123' | password_hash('sha512') }}"
+  - userlist: [admin, guest, administrator]
+ 
+### Call which crypt mechanism you need. 
+  tasks:
+    - name: Create variable for crptpasswd
+      set_fact:
+         cryppasswd: "{{ password1 }}"
+       register: encrypted_user_password
+     - debug: msg="{{encrypted_user_password.stdout}}"
+
+# put the user name you want to create passwd.
+     - name: Change root password
+#       user: name=root update_password=always password={{ encrypted_user_password.stdout }}
+       user:
+        name: root
+        update_password: always
+        password: "{{ cryppasswd }}"
+        
+     - name: add users loop through list
+       debug:
+         msg: "An item: {{ item }}"
+       with_items:
+         - "{{ userlist }}"
+
+ 
