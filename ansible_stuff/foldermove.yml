@@ -1,0 +1,70 @@
+--- 
+### Condition line entry  and execute folder move and put it back.
+
+- hosts: localhost
+  connection: local
+  ignore_errors: true
+  gather_facts: no
+  remote_user: root
+  become: true
+
+  tasks:
+      - name: checking if ansible-user exist in sudoers list
+        shell: cat /etc/sudoers | grep ansible-user | wc -l
+        register: sudocheck
+
+       # Add to sudoers list.
+      - name: "Add ansible-user to sudoers list"
+        lineinfile:
+          dest: "/etc/sudoers" 
+          state: "present"
+          regexp: "^root    ALL=(ALL)       ALL"
+          line: "ansible-user ALL=(ALL) NOPASSWD: ALL"
+          backup: yes
+        when: sudocheck.stdout != "0"
+
+
+      - name: Copy repo folder to temp location
+        copy:
+           src: /etc/repo.d
+           dest: /tmp
+           force: yes
+        
+
+
+      - name: Remove /etc/repofolder
+        file:
+          path: /etc/repo.d
+          state: absent
+
+      - name: cecking /etc/repo.d  dir is available
+        shell: ls /etc/repo.d | wc -l
+        register: repodircheck
+
+      - name: create repo dir
+        file:
+          path: /etc/repo.d
+          state: directory
+        when: repodircheck.stdout != "0"
+
+      - name: Copy file with owner and permissions
+        copy:
+          src: /home/ravi/ansible/cent6x.repo
+          dest: /etc/repo.d/cent6x.repo
+          owner: root
+          group: root
+          mode: '0644'
+
+### You another playbook scoprit calling, only taskname should be there.
+      - include: firefoxinstall.yml
+      
+      - name: Copy file to a remote machine
+        copy:
+           src: /tmp/repo.d
+           dest: /etc
+           force: yes
+      
+  #    - name: Remove old file/folder
+  #      file:
+  #        path: /tmp/repo.d
+  #        state: absent
