@@ -1,0 +1,8 @@
+
+---
+#- hosts: localhost
+#  connection: local
+#  ignore_errors: true
+#  tasks:
+    - name: list ps output
+      shell : ps > /tmp/ps.out
