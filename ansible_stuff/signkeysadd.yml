@@ -1,0 +1,9 @@
+---
+    #- hosts: localhost
+    #  connection: local
+    #  ignore_errors: true
+    #  remote_user: root
+    #  become: true
+    #  tasks:
+        - name: Add Sign key for elasticsearch
+          shell : wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
