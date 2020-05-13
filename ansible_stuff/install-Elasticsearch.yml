@@ -1,0 +1,50 @@
+---
+
+- hosts: localhost
+  connection: local
+  ignore_errors: true
+  gather_facts: no
+  remote_user: root
+  become: true
+
+  tasks:
+    - name: Adding elastic search using ansible playbook
+      shell: echo "installing...."
+
+    - include: signkeysadd.yml
+
+    - name: Install the apt-transport-https package
+      shell: sudo apt-get install apt-transport-https
+
+    - name:  Add the repository definition to your system
+      shell: echo "deb https://artifacts.elastic.co/packages/6.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-6.x.list
+
+    - name: update repository
+      shell: sudo apt-get update
+
+    - name: Install elastic search
+      shell: sudo apt-get install elasticsearch
+
+    - name: Bind Elasticsearch to localhost or privateIP
+      lineinfile:
+        dest: "/etc/elasticsearch/elasticsearch.yml"
+        state: "present"
+        regexp: "^network.host:"
+        line: "network.host: localhost"
+        backup: yes
+
+    - name: Bind Elasticsearch to http port
+      lineinfile:
+        dest: "/etc/elasticsearch/elasticsearch.yml"
+        state: "present"
+        regexp: "^http.port:"
+        line: "http.port: 9200"
+        backup: yes
+      notify:
+        - Starting Elasticsearch
+
+  handlers:
+      - name: Starting Elasticsearch
+        service:
+          name: elasticsearch
+          state: started
