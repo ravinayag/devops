@@ -39,14 +39,14 @@ sudo mysql_secure_installation
 sudo systemctl restart mysql.service
 ```
 ### Step 3: Install PHP 7.2-FPM and Related Modules
-PHP 7.2 isn’t available on Ubuntu default repositories… in order to install it, you will have to get it from third-party repositories.
+Since PHP 7.2 isn’t on Ubuntu default repositories… you will have to get it from third-party repositories.
 
-Run the commands below to add the below third party repository to upgrade to PHP 7.2
-
+Run the commands below to add the below third party repository for PHP 7.2
+```
 sudo apt update
 sudo apt-get install software-properties-common
 sudo add-apt-repository ppa:ondrej/php
-
+```
 Run the commands below to install PHP 7.1 and related modules.
 ```
 sudo apt install php7.2-fpm php7.2-common php7.2-mbstring php7.2-xmlrpc php7.2-soap php7.2-gd php7.2-xml php7.2-intl 
@@ -72,7 +72,8 @@ date.timezone = India/kolkata
 ### Step 4: Create Mautic Database  ( Optional) 
 
 Create a blank Mautic database called 'mautic215', and username 'mauticuser'  and provide all permissions to the user.
- ```
+
+```
  sudo mysql -u root -p
  CREATE DATABASE mautic215 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci;
  CREATE USER 'mauticuser'@'localhost' IDENTIFIED BY 'pa$$word';
@@ -163,31 +164,38 @@ Then test nginx configuration and restart.
 After configuring the above, enable it by running the commands below
 sudo ln -s /etc/nginx/sites-available/mautic.conf /etc/nginx/sites-enabled/
 
-sudo nginx -t   
+```sudo nginx -t  ``` 
+
 If no errors,  restart the nginx
-sudo systemctl restart nginx
+
+```sudo systemctl restart nginx```
 
 ### Step 7: Finish Mautic Installation in Web Browser
 Now in your browser address bar, type your domain name for Mautic to access the web install wizard.
-mautic.your-domain.com
-or
-mautic.your-domain.com/index.php/installer
 
+mautic.mydomain.com
+
+or
+
+mautic.mydomain.com/index.php/installer
+
+Here you can choose the Database which you created. else you should use DBadmin user to create new DB. 
 
 ### Troubleshooting 
 
 1, If Mautic is not showing in webbrowser and giving the errors : 403, 500, 404
 
 Check the logs at  
+```
 sudo tail /var/log/nginx/mautic.error 
 sudo tail /var/log/nginx/mautic.access
 Clean the folder : rm -f /var/www/html/mautic215/app/cache
-
+```
 
 2, Check the ownership or rerun the below commands
-
+```
 sudo chown -R www-data:www-data /var/www/html/mautic215
 sudo find . -type f -not -perm 644 -exec chmod 644 {} +
 sudo find . -type d -not -perm 755 -exec chmod 755 {} +
 
-
+```
