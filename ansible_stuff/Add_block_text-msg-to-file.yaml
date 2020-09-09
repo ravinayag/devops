@@ -1,0 +1,35 @@
+---
+    #- hosts: localhost
+    #  connection: local
+    #  ignore_errors: true
+    #  remote_user: root
+    #  become: true
+    #  tasks:
+  - name: Network Getting Started to extend the configtx_v14.yaml file
+    #gather_facts: true
+    hosts: localhost
+
+    tasks:
+       - name: copy file
+         copy:
+          src: ./configtx_v14.orgsrc.yaml
+          dest: ./configtx_v14.org.yaml
+
+       - name: filtering for org3
+         shell:  cat ../../test.env | grep ORG_3
+         register: orgcheck
+         ignore_errors: true
+       
+       - name: printing the outputs
+         debug: 
+          msg: "{{ orgcheck }}"
+
+       - name: Inserting the ORG 3 to configtx file
+         blockinfile:
+           marker: "<!-- {mark} ANSIBLE MANAGED BLOCK -->"
+           insertafter: "Port: 10051"
+           #state: present
+           block: "{{ lookup('file', './configtx_org3.txt') }}"
+           dest: ./configtx_v14.org.yaml
+           backup: yes
+         when: orgcheck.stdout is search('ORG_3') #!= -1
