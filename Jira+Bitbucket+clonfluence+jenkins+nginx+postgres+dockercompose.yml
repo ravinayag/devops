@@ -1,0 +1,212 @@
+version: '3.7'
+
+services:
+
+ artifactory:
+  image: artifactory:lts
+  container_name: artifactory
+  restart: always
+  depends_on:
+   - postgres
+   - jira
+  environment:
+   - DB_TYPE=postgresql
+   - DB_URL=jdbc:postgresql://postgres:5432/artifactory
+   - DB_USER=artifactory
+   - DB_PASSWORD=artifactory
+  volumes:
+   - artifactoryData:/var/opt/jfrog/artifactory
+   - /etc/localtime:/etc/localtime:ro
+  networks:
+   mynetwork:
+    aliases:
+     - artifactory
+
+ bitbucket:
+  image: atlassian/bitbucket-server:7.6
+  container_name: bitbucket
+  restart: always
+  ports:
+   - "7999:7999"
+   - "7990:7990"
+  depends_on:
+   - postgres
+   - jira
+  environment:
+   - JVM_MINIMUM_MEMORY=512m
+   - JVM_MAXIMUM_MEMORY=1024m
+   - JDBC_DRIVER=org.postgresql.Driver
+   - JDBC_USER=atlbitbucket
+   - JDBC_PASSWORD=atlbitbucket
+   - JDBC_URL=jdbc:postgresql://postgres:5432/bitbucket
+   - SERVER_PROXY_NAME=bitbucket.mydom.local
+   - SERVER_PROXY_PORT=443
+   - SERVER_SCHEME=https
+   - SERVER_CONTEXT_PATH=/bitbucket
+  volumes:
+   - bitbucketData:/var/atlassian/application-data/bitbucket
+   - /etc/localtime:/etc/localtime:ro  
+  networks:
+   mynetwork:
+    aliases:
+     - bitbucket
+
+ confluence:
+  image: atlassian/confluence-server:7.4
+  container_name: confluence
+  restart: always
+  depends_on:
+   - postgres
+   - jira
+  environment:
+   - JVM_MINIMUM_MEMORY=1024m
+   - JVM_MAXIMUM_MEMORY=2048m
+   - ATL_JDBC_URL='jdbc:postgresql://postgres:5432/confluence'
+   - ATL_JDBC_USER=confluence
+   - ATL_JDBC_PASSWORD=confluence
+   - ATL_DB_TYPE=postgresql
+   - CATALINA_CONNECTOR_PROXYNAME=confluence.mydom.local
+   - CATALINA_CONNECTOR_PROXYPORT=443
+   - CATALINA_CONNECTOR_SCHEME=https
+   - CATALINA_CONNECTOR_SECURE=true
+   - CATALINA_CONTEXT_PATH=/confluence
+  volumes:
+   - confluenceData:/var/atlassian/application-data/confluence
+   - /etc/localtime:/etc/localtime:ro
+  networks:
+   mynetwork:
+    aliases:
+     - confluence
+
+ jenkins:
+  image: jenkins/jenkins:latest
+  container_name: jenkins
+  restart: always
+  depends_on:
+    - jira
+  environment:
+   - JENKINS_OPTS='--prefix=/jenkins --httpPort=9080'
+   - DOCKER_HOST='tcp://192.168.0.10:4243'
+  ports:
+   - "9080:9080"
+   - "50000:50000"
+  volumes:
+   - /var/docker/volumes/jenkins/home:/var/jenkins_home
+   - /etc/localtime:/etc/localtime:ro
+  networks:
+   mynetwork:
+    aliases:
+     - jenkins
+
+ jira:
+  image: atlassian/jira-software:8.13.5
+  container_name: jira
+  restart: always
+  depends_on:
+   - postgres
+  environment:
+   - ATL_PROXY_NAME=jira.mydom.local
+   - ATL_PROXY_PORT=443
+   - ATL_TOMCAT_SCHEME=https
+   - ATL_TOMCAT_SECURE=true
+   - ATL_TOMCAT_CONTEXTPATH=/jira
+  volumes:
+   - jiraData:/var/atlassian/application-data/jira
+   - /etc/localtime:/etc/localtime:ro
+  networks:
+   mynetwork:
+    aliases:
+     - jira
+
+ postgres:
+  image: postgres:9.6
+  container_name: postgres
+  restart: always
+  environment:
+   POSTGRES_PASSWORD: password
+   POSTGRES_USER: postgres
+   POSTGRES_DB: postgres
+   PGDATA: /var/lib/postgresql/data/pgdata
+  volumes:
+   - postgresData:/var/lib/postgresql/data
+   - /etc/localtime:/etc/localtime:ro
+  networks:
+   mynetwork:
+    aliases:
+     - postgres
+
+ nginx:
+  image: nginx:latest
+  container_name: nginx
+  restart: always
+  ports:
+   - "80:80"
+   - "443:443"
+  volumes:
+   - nginxConfig:/etc/nginx
+   - /var/docker/volumes/nginx/modules:/usr/lib/nginx/modules
+   - /etc/localtime:/etc/localtime:ro
+  networks:
+   mynetwork:
+    aliases:
+     - nginx
+
+networks:
+ mynetwork:
+  aliases:
+   - bitbucket.mydom.local
+   - jira.mydom.local
+   - confluence.mydom.local
+ 
+volumes:
+ postgresData:
+  driver: local
+  driver_opts:
+   type: 'none'
+   o: 'bind'
+   device: '/var/docker/volumes/postgres/data'
+ confluenceData:
+  driver: local
+  driver_opts:
+   type: 'none'
+   o: 'bind'
+   device: '/var/docker/volumes/confluence/data'
+ nginxConfig:
+  driver: local
+  driver_opts:
+   type: 'none'
+   o: 'bind'
+   device: '/var/docker/volumes/nginx/config'
+ jiraData:
+  driver: local
+  driver_opts:
+   type: 'none'
+   o: 'bind'
+   device: '/var/docker/volumes/jira/data'
+ bitbucketData:
+  driver: local
+  driver_opts:
+   type: 'none'
+   o: 'bind'
+   device: '/var/docker/volumes/bitbucket/data'
+ artifactoryData:
+  driver: local
+  driver_opts:
+   type: 'none'
+   o: 'bind'
+   device: '/var/docker/volumes/artifactory/data'
+   
+   
+######  Postgress Database creation ######
+#CREATE ROLE jiradbuser WITH CREATEDB LOGIN PASSWORD 'jiradbuser' VALID UNTIL 'infinity';
+#CREATE DATABASE jiradb WITH TEMPLATE = template0 ENCODING = 'UTF8' LC_COLLATE = 'C' LC_CTYPE = 'C' OWNER=jiradbuser CONNECTION LIMIT=-1;
+
+#CREATE ROLE atlbitbucket WITH CREATEDB LOGIN PASSWORD 'atlbitbucket' VALID UNTIL 'infinity';
+#CREATE DATABASE bitbucket WITH TEMPLATE = template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8' OWNER=atlbitbucket CONNECTION LIMIT=-1;
+
+#CREATE ROLE confluence WITH CREATEDB LOGIN PASSWORD 'confluence' VALID UNTIL 'infinity';
+#CREATE DATABASE confluence WITH TEMPLATE = template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8' OWNER=confluence CONNECTION LIMIT=-1;
+
+
+
+ 
