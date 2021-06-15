@@ -1,0 +1,41 @@
+
+  server {
+    listen 80 default_server;
+    client_max_body_size 4G;
+
+    server_name api.example.com www.api.example.com;
+
+    keepalive_timeout 5;
+    access_log /var/log/nginx-access.log;
+    error_log /var/log/nginx-error.log;
+
+
+    location /static/ {
+      alias /home/tssdev/scrapper_tool/TSS-Backend/static/;
+    }
+    location /media/  {
+       alias /home/tssdev/scrapper_tool/TSS-Backend;
+    }
+
+
+    location / {
+      try_files $uri @proxy_to_app;
+    }
+
+    location @proxy_to_app {
+      proxy_headers_hash_max_size 512;
+      proxy_headers_hash_bucket_size 128;
+      proxy_redirect off;
+      proxy_pass http://unix:/home/tssdev/scrapper_tool/gunicorn.sock;
+      include proxy_params;
+      include  /etc/nginx/mime.types;
+    }
+
+    error_page 500 502 503 504 /500.html;
+    location = /500.html {
+      root /home/tssdev/scrapper_tool/TSS-Backend;
+    }
+
+
+  }
+

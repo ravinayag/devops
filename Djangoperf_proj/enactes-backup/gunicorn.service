@@ -1,0 +1,15 @@
+[Unit]
+Description=gunicorn daemon
+After=network.target
+
+[Service]
+User=tssdev
+ExecStart=/home/tssdev/scrapper_tool/TSS-Backend/gunicorn-start
+Restart=on-failure
+RestartSec=10
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+
+
+[Install]
+WantedBy=multi-user.target

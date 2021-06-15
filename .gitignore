@@ -11,3 +11,6 @@
 ./node_modules
 ./index.js*
 ./package.*
+Djangoperf_proj/Python-concurrenttest/
+sretask- execution.pdf
+.gitignore
