@@ -1,0 +1,19 @@
+FROM docker:dind
+
+# Install kubectl
+RUN apk add --no-cache curl wget && \
+    curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x ./kubectl && \
+    mv ./kubectl /usr/local/bin/kubectl
+
+# Install kubeseal
+RUN wget https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/kubeseal-0.27.1-linux-amd64.tar.gz && \
+    tar zxf kubeseal-0.27.1-linux-amd64.tar.gz && \
+    chmod +x ./kubeseal && \
+    mv ./kubeseal /usr/local/bin/kubeseal
+
+# Expose Docker daemon ports
+EXPOSE 2375 2376
+
+# Start Docker daemon
+CMD ["dockerd-entrypoint.sh"]
