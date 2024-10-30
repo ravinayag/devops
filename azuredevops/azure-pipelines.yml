@@ -1,0 +1,193 @@
+name: absh-pipeline
+
+trigger:
+  batch: true
+  branches:
+    include: 
+    - devtest
+  paths:
+    include: 
+    - /
+    exclude:
+    - /deploy
+    - /manifests
+    
+pr: none
+
+pool:
+  name: myvm-agent
+
+resources:
+- repo: self
+
+parameters:
+  - name: projectName
+    type: string
+    default: 'absh'
+  - name: environment
+    type: string
+    default: 'uat'
+    values:
+      - dev
+      - uat
+      - prod
+  - name: registryName
+    type: string
+    default: 'myregistry'
+  - name: registryLogin
+    type: string
+    default: 'user'
+  - name: registryPassword
+    type: string
+    default: ''
+
+variables:
+  dockerRegistryServiceConnection: '0wf326d5-124b-4811-8648-8sdj635a2f0'
+  imageRepository: 'mykubectimage'
+  containerRegistry: 'myregistry.azurecr.io'
+  dockerfilePath: 'absh/Dockerfile'
+  tag: '$(Build.BuildId)'
+  helmVersion: 3.4.1
+  registryServerName: '${{ parameters.registryName }}.azurecr.io'
+  projectName: '${{ parameters.projectName }}'
+  imageName: '${{ parameters.projectName }}'
+  registryLogin: '${{ parameters.registryLogin }}'
+  registryPassword: '${{ parameters.registryPassword }}'
+  namespace: '$(projectName)-${{ parameters.environment }}'
+
+stages:
+- stage: Build
+  displayName: Build and Push
+  jobs:
+  - job: BuildAndPush
+    displayName: Build and Push
+    steps:
+    - task: Docker@2
+      displayName: Build and push image to registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          
+    - task: HelmInstaller@1
+      displayName: 'Install Helm'
+      inputs:
+        helmVersionToInstall: $(helmVersion)
+
+    - bash: |
+        helm lint ./absh
+      failOnStderr: true
+      displayName: 'Helm Lint'
+
+    - bash: |
+        helm package $(projectName) --version $(tag)
+      failOnStderr: true        
+      displayName: 'Package Helm Chart'
+
+    - bash: |
+        export HELM_EXPERIMENTAL_OCI=1
+        
+        # Login to ACR
+        echo "${{ variables.registryPassword }}" | helm registry login "${{ variables.registryServerName }}" --username "${{ variables.registryLogin }}" --password-stdin
+        
+        # Save and push the chart to ACR
+        chartVersion=$(helm chart save absh "${{ variables.registryServerName }}/helm/${{ variables.projectName }}" | grep version | awk -F ': ' '{print $2}')
+        helm chart push "${{ variables.registryServerName }}/helm/${{ variables.projectName }}:$chartVersion"
+        
+        # Save variables for deployment stage
+        echo "##vso[task.setvariable variable=chartVersion;isOutput=true]$chartVersion"
+        echo "##vso[task.setvariable variable=imageTag;isOutput=true]$(tag)"
+      name: saveVars
+      displayName: 'Push Helm Chart and Save Variables'
+
+- stage: Deploy
+  displayName: Deploy to Kubernetes
+  dependsOn: Build
+  condition: succeeded()
+  variables:
+    chartVersion: $[ stageDependencies.Build.BuildAndPush.outputs['saveVars.chartVersion'] ]
+    imageTag: $[ stageDependencies.Build.BuildAndPush.outputs['saveVars.imageTag'] ]
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy to ${{ parameters.environment }}
+    environment: ${{ parameters.environment }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: HelmInstaller@1
+            displayName: 'Install Helm'
+            inputs:
+              helmVersionToInstall: $(helmVersion)
+
+          - bash: |
+              # Verify kubectl access
+              kubectl cluster-info
+              if [ $? -ne 0 ]; then
+                echo "Error: Unable to access Kubernetes cluster"
+                exit 1
+              fi
+              
+              echo "Chart Version: $(chartVersion)"
+              echo "Image Tag: $(imageTag)"
+              echo "Deploying to environment: ${{ parameters.environment }}"
+              
+              # Export OCI support for Helm
+              export HELM_EXPERIMENTAL_OCI=1
+              
+              # Login to ACR
+              echo "${{ parameters.registryPassword }}" | helm registry login "${{ variables.registryServerName }}" --username "${{ parameters.registryLogin }}" --password-stdin
+              
+              # Create namespace if it doesn't exist
+              kubectl create namespace $(namespace) --dry-run=client -o yaml | kubectl apply -f -
+              
+              # Pull the chart from ACR
+              helm chart pull ${{ variables.registryServerName }}/helm/${{ variables.projectName }}:$(chartVersion)
+              
+              # Export the chart
+              helm chart export ${{ variables.registryServerName }}/helm/${{ variables.projectName }}:$(chartVersion) --destination ./charts
+              
+              # Verify values file exists
+              VALUES_FILE="./charts/$(projectName)/values-${{ parameters.environment }}.yaml"
+              if [ ! -f "$VALUES_FILE" ]; then
+                echo "Error: Environment values file $VALUES_FILE not found!"
+                echo "Please ensure values-${{ parameters.environment }}.yaml exists in your Helm chart."
+                exit 1
+              fi
+
+              # Try a dry-run since it expected to fail - Remove this execution after verification
+              helm upgrade --install $(projectName) ./charts/$(projectName) --namespace $(namespace) --set image.tag=$(imageTag) \
+                --set image.repository=${{ variables.registryServerName }}/$(projectName) -f $VALUES_FILE --dry-run > helm-dry-run.txt
+              echo "Helm dry-run output:"
+              cat helm-dry-run.txt
+
+              # Deploy/Upgrade the helm chart with manifest output
+              helm upgrade --install $(projectName) ./charts/$(projectName) --namespace $(namespace) --set image.tag=$(imageTag) \
+                --set image.repository=${{ variables.registryServerName }}/$(projectName) -f $VALUES_FILE --wait --timeout 10m --debug --render-subchart-notes
+
+              # Deploy/Upgrade the helm chart
+              helm upgrade --install $(projectName) ./charts/$(projectName) \
+                --namespace $(namespace) \
+                --set image.tag=$(imageTag) \
+                --set image.repository=${{ variables.registryServerName }}/$(projectName) \
+                -f $VALUES_FILE \
+                --wait --timeout 10m
+            displayName: 'Deploy Helm Chart'
+
+          - bash: |
+              # Check deployment status
+              echo "Checking deployment status..."
+              kubectl rollout status deployment/$(projectName) -n $(namespace) --timeout=5m
+              
+              if [ $? -eq 0 ]; then
+                echo "✅ Deployment successful!"
+                kubectl get pods -n $(namespace) -l app=$(projectName)
+              else
+                echo "❌ Deployment failed or timed out"
+                kubectl get events -n $(namespace) --sort-by='.lastTimestamp'
+                exit 1
+              fi
+            displayName: 'Verify Deployment'
