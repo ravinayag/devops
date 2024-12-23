@@ -19,30 +19,37 @@ pipeline {
         CERT_FILE = 'sealed-secrets-cert.pem'
         DOCKER_IMAGE = 'docker-dind-kube-secret'
         ARTIFACTS_DIR = 'sealed-secrets-artifacts'
-        // Predefined credential IDs for different environments
-        PROD_KUBECONFIG_ID = 'Production'
-        NONPROD_KUBECONFIG_ID = 'Stage' // Default to Stage for Non-Production
     }
 
     stages {
-        stage('Environment Validation') {
+        stage('Environment Setup') {
             steps {
                 script {
-                    echo "=== Environment Validation ==="
-                    
-                    // Set the appropriate kubeconfig credential ID based on environment
-                    env.SELECTED_KUBECONFIG_ID = params.ENVIRONMENT == 'Production' 
-                        ? env.PROD_KUBECONFIG_ID 
-                        : env.NONPROD_KUBECONFIG_ID
-
                     echo "Selected Environment: ${params.ENVIRONMENT}"
-                    echo "Using kubeconfig credential: ${env.SELECTED_KUBECONFIG_ID}"
-
-                    // Additional validation for Production environment
+                    
+                    // Define cluster list based on environment
+                    def clusters = []
                     if (params.ENVIRONMENT == 'Production') {
-                        // Add any production-specific validations here
-                        echo "Production environment selected - applying additional safeguards"
-                        // Example: You could add approval steps or additional validations
+                        clusters = [
+                            [id: 'prod-cluster-1', name: 'Production Cluster 1', credentialId: 'Production_1'],
+                            [id: 'prod-cluster-2', name: 'Production Cluster 2', credentialId: 'Production_2']
+                        ]
+                    } else {
+                        clusters = [
+                            [id: 'non-prod-cluster', name: 'Non-Production Cluster', credentialId: 'Stage']
+                        ]
+                    }
+                    
+                    // Store clusters info in environment variables
+                    env.CLUSTER_IDS = clusters.collect { it.id }.join(',')
+                    clusters.each { cluster ->
+                        env["CLUSTER_${cluster.id}_NAME"] = cluster.name
+                        env["CLUSTER_${cluster.id}_CRED"] = cluster.credentialId
+                    }
+                    
+                    echo "Number of target clusters: ${clusters.size()}"
+                    clusters.each { cluster ->
+                        echo "Cluster: ${cluster.name} (${cluster.id})"
                     }
                 }
             }
@@ -51,41 +58,21 @@ pipeline {
         stage('Prepare Workspace') {
             steps {
                 script {
-                    echo "=== Prepare Workspace ==="
-                    echo "Creating directories and cleaning up old files..."
+                    echo "=== Stage: Prepare Workspace ==="
                     
                     sh """
                         set -x
                         mkdir -p ${WORK_DIR}
                         mkdir -p ${WORKSPACE}/${ARTIFACTS_DIR}
-                        
-                        echo "Current workspace & Work Dir contents:"
-                        ls -laRt ${WORKSPACE} || echo "Directory is empty"
-                        ls -laRt ${WORK_DIR} || echo "Directory is empty"
-                        
                         rm -f ${WORK_DIR}/* || true
                         rm -f ${WORKSPACE}/${ARTIFACTS_DIR}/* || true
-                        
-                        echo "Work directory contents after cleanup:"
-                        ls -la ${WORK_DIR} || echo "Directory is empty"
-                        ls -la ${WORKSPACE}/${ARTIFACTS_DIR} || echo "Directory is empty"
                     """
 
-                    echo "Processing base64 encoded secret..."
                     if (params.SECRETS_YAML) {
-                        echo "Secret data provided, writing to file..."
                         writeFile file: "${WORK_DIR}/secrets.yaml.b64", text: params.SECRETS_YAML
-                        
                         sh """
                             set -x
-                            ls -l ${WORK_DIR}/secrets.yaml.b64
-                            
-                            echo "Decoding base64 content..."
                             base64 --decode < ${WORK_DIR}/secrets.yaml.b64 > ${WORK_DIR}/secrets.yaml
-                            
-                            echo "Checking decoded file..."
-                            ls -l ${WORK_DIR}/secrets.yaml
-                            
                             echo "First few lines of decoded file (sanitized):"
                             head -n 5 ${WORK_DIR}/secrets.yaml | grep -v 'data:' || echo "File appears to be empty"
                         """
@@ -96,97 +83,77 @@ pipeline {
             }
         }
 
-        stage('Apply K8s Config & Fetch Public Certificate') {
+        stage('Process Clusters') {
             steps {
                 script {
-                    echo "=== Apply K8s Config & Fetch Public Certificate ==="
+                    def clusterIds = env.CLUSTER_IDS.split(',')
+                    def parallelStages = [:]
                     
-                    withCredentials([file(credentialsId: env.SELECTED_KUBECONFIG_ID, variable: 'KUBECONFIG')]) {
-                        echo "Checking for required files..."
-                        sh """
-                            set -x
-                            echo "Work directory contents:"
-                            ls -la ${WORK_DIR}
-                            
-                            echo "Checking kubeconfig file:"
-                            ls -l \${KUBECONFIG}
-                        """
+                    clusterIds.each { clusterId ->
+                        def clusterName = env["CLUSTER_${clusterId}_NAME"]
+                        def credentialId = env["CLUSTER_${clusterId}_CRED"]
                         
-                        if (fileExists("${WORK_DIR}/secrets.yaml")) {
-                            echo "Secret file exists, proceeding with certificate fetch..."
-                            
-                            sh """
-                                set -x
-                                echo "Listing the pods..."
-                                docker run --rm \
-                                -v \${KUBECONFIG}:/tmp/kubeconfig \
-                                -v ${WORK_DIR}/secrets.yaml:/tmp/secrets.yaml \
-                                --name dind-service \
-                                ${DOCKER_IMAGE} kubectl get pods -A --kubeconfig=/tmp/kubeconfig
-                                
-                            """
-                            
-                            sh """
-                                set -x
-                                echo "Fetching sealed secrets certificate..."
-                                docker run --rm \
-                                -v \${KUBECONFIG}:/tmp/kubeconfig \
-                                -v ${WORK_DIR}/secrets.yaml:/tmp/secrets.yaml \
-                                --name dind-service \
-                                ${DOCKER_IMAGE} kubeseal \
-                                    --controller-name=${CONTROLLER_NAME} \
-                                    --controller-namespace=${CONTROLLER_NAMESPACE} \
-                                    --kubeconfig=/tmp/kubeconfig \
-                                    --fetch-cert > ${WORK_DIR}/${CERT_FILE}
-                                
-                                echo "Checking certificate file:"
-                                ls -l ${WORK_DIR}/${CERT_FILE}
-                            """
+                        parallelStages[clusterName] = {
+                            stage("Process ${clusterName}") {
+                                withCredentials([file(credentialsId: credentialId, variable: 'KUBECONFIG')]) {
+                                    def clusterWorkDir = "${WORK_DIR}/${clusterId}"
+                                    def clusterArtifactsDir = "${WORKSPACE}/${ARTIFACTS_DIR}/${clusterId}"
+                                    
+                                    sh """
+                                        mkdir -p ${clusterWorkDir}
+                                        mkdir -p ${clusterArtifactsDir}
+                                        cp ${WORK_DIR}/secrets.yaml ${clusterWorkDir}/
+                                    """
 
-                            if (params.STORE_CERT) {
-                                sh """
-                                    set -x
-                                    cp ${WORK_DIR}/${CERT_FILE} ${WORKSPACE}/${ARTIFACTS_DIR}/
-                                    echo "Certificate stored in artifacts directory:"
-                                    ls -l ${WORKSPACE}/${ARTIFACTS_DIR}/${CERT_FILE}
-                                """
+                                    sh """
+                                        set -x
+                                        docker run --rm \
+                                        -v \${KUBECONFIG}:/tmp/kubeconfig \
+                                        -v ${clusterWorkDir}/secrets.yaml:/tmp/secrets.yaml \
+                                        -e KUBECONFIG=/tmp/kubeconfig \
+                                        --name dind-service-${clusterId} \
+                                        ${DOCKER_IMAGE} kubeseal \
+                                            --controller-name=${CONTROLLER_NAME} \
+                                            --controller-namespace=${CONTROLLER_NAMESPACE} \
+                                            --kubeconfig=/tmp/kubeconfig \
+                                            --fetch-cert > ${clusterWorkDir}/${CERT_FILE}
+                                    """
+
+                                    if (params.STORE_CERT) {
+                                        sh "cp ${clusterWorkDir}/${CERT_FILE} ${clusterArtifactsDir}/"
+                                    }
+
+                                    sh """
+                                        set -x
+                                        docker run --rm \
+                                        -v \${KUBECONFIG}:/tmp/kubeconfig \
+                                        -v ${clusterWorkDir}/secrets.yaml:/tmp/secrets.yaml \
+                                        -v ${clusterWorkDir}/${CERT_FILE}:/tmp/${CERT_FILE} \
+                                        -e KUBECONFIG=/tmp/kubeconfig \
+                                        --name dind-service-${clusterId} \
+                                        ${DOCKER_IMAGE} sh -c "kubeseal \
+                                            --controller-name=${CONTROLLER_NAME} \
+                                            --controller-namespace=${CONTROLLER_NAMESPACE} \
+                                            --format yaml \
+                                            --cert /tmp/${CERT_FILE} \
+                                            --namespace=${params.NAMESPACE} \
+                                            < /tmp/secrets.yaml" > ${clusterArtifactsDir}/sealed-secrets.yaml
+                                    """
+
+                                    sh """
+                                        echo "Generated on: \$(date)" > ${clusterArtifactsDir}/README.txt
+                                        echo "Cluster: ${clusterName}" >> ${clusterArtifactsDir}/README.txt
+                                        echo "Environment: ${params.ENVIRONMENT}" >> ${clusterArtifactsDir}/README.txt
+                                        echo "Namespace: ${params.NAMESPACE}" >> ${clusterArtifactsDir}/README.txt
+                                        echo "Controller: ${CONTROLLER_NAME}" >> ${clusterArtifactsDir}/README.txt
+                                        echo "Controller Namespace: ${CONTROLLER_NAMESPACE}" >> ${clusterArtifactsDir}/README.txt
+                                    """
+                                }
                             }
-
-                            echo "Creating sealed secret..."
-                            sh """
-                                set -x
-                                docker run --rm \
-                                -v \${KUBECONFIG}:/tmp/kubeconfig \
-                                -v ${WORK_DIR}/secrets.yaml:/tmp/secrets.yaml \
-                                -v ${WORK_DIR}/${CERT_FILE}:${WORK_DIR}/${CERT_FILE} \
-                                --name dind-service \
-                                ${DOCKER_IMAGE} sh -c "kubeseal \
-                                    --controller-name=${CONTROLLER_NAME} \
-                                    --controller-namespace=${CONTROLLER_NAMESPACE} \
-                                    --format yaml \
-                                    --cert ${WORK_DIR}/${CERT_FILE} \
-                                    --namespace=${params.NAMESPACE} \
-                                    < /tmp/secrets.yaml" > ${WORKSPACE}/${ARTIFACTS_DIR}/sealed-secrets.yaml
-                                
-                                echo "Checking sealed secret file:"
-                                ls -l ${WORKSPACE}/${ARTIFACTS_DIR}/sealed-secrets.yaml
-                            """
-
-                            echo "Creating documentation..."
-                            sh """
-                                set -x
-                                echo "Generated on: \$(date)" > ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
-                                echo "Environment: ${params.ENVIRONMENT}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
-                                echo "Namespace: ${params.NAMESPACE}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
-                                echo "Controller: ${CONTROLLER_NAME}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
-                                echo "Controller Namespace: ${CONTROLLER_NAMESPACE}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
-                            """
-
-                            archiveArtifacts artifacts: "${ARTIFACTS_DIR}/**/*", fingerprint: true
-                        } else {
-                            error "Required secrets.yaml file is missing at ${WORK_DIR}/secrets.yaml. Check previous stage logs."
                         }
                     }
+                    
+                    parallel parallelStages
                 }
             }
         }
@@ -197,53 +164,52 @@ pipeline {
             script {
                 echo "=== Post-Build Actions ==="
                 echo "Cleaning up temporary files..."
-                sh """
-                    set -x
-                    echo "Work directory contents before cleanup:"
-                    ls -la ${WORK_DIR} || echo "Directory not found"
-                    
-                    rm -rf ${WORK_DIR}
-                    
-                    echo "Artifacts directory contents:"
-                    ls -lR ${WORKSPACE}/${ARTIFACTS_DIR} || echo "No artifacts found"
-                """
+                sh "rm -rf ${WORK_DIR}"
+                archiveArtifacts artifacts: "${ARTIFACTS_DIR}/**/*", fingerprint: true
             }
         }
         success {
             script {
                 echo "=== Build Successful ==="
-                def artifactMsg = """
-                Pipeline completed successfully!
+                def clusterIds = env.CLUSTER_IDS.split(',')
+                def successMsg = """Pipeline completed successfully!
                 
                 Environment: ${params.ENVIRONMENT}
-                Available artifacts in Jenkins UI (Build Artifacts section):
-                1. sealed-secrets.yaml - Encrypted sealed secret
-                2. ${CERT_FILE} - Public certificate (if enabled)
-                3. README.txt - Generation details and instructions
+                Processed Clusters: ${clusterIds.collect { env["CLUSTER_${it}_NAME"] }.join(', ')}
+                
+                Available artifacts in Jenkins UI (Build Artifacts section):"""
+                
+                clusterIds.each { clusterId ->
+                    successMsg += """
+                    ${env["CLUSTER_${clusterId}_NAME"]}:
+                    - ${ARTIFACTS_DIR}/${clusterId}/sealed-secrets.yaml - Encrypted sealed secret
+                    - ${ARTIFACTS_DIR}/${clusterId}/${CERT_FILE} - Public certificate (if enabled)
+                    - ${ARTIFACTS_DIR}/${clusterId}/README.txt - Generation details and instructions"""
+                }
+                
+                successMsg += """
                 
                 To download:
                 1. Click on this build number
                 2. Select 'Build Artifacts' in the left sidebar
-                3. Find files in the ${ARTIFACTS_DIR}/ directory
+                3. Find files in the ${ARTIFACTS_DIR}/<cluster-id>/ directory
                 """
-                echo artifactMsg
+                echo successMsg
             }
         }
         failure {
             script {
-                echo """
-                === Build Failed ===
+                def clusterIds = env.CLUSTER_IDS.split(',')
+                def clusterNames = clusterIds.collect { env["CLUSTER_${it}_NAME"] }.join(', ')
+                
+                echo """=== Build Failed ===
                 Pipeline failed. Please check:
                 1. The logs above for detailed error messages
                 2. Whether the secret YAML was properly encoded
-                3. If kubeconfig credentials are correct for ${params.ENVIRONMENT} environment
-                4. If the sealed-secrets controller is running in the cluster
+                3. If kubeconfig credentials are correct for all clusters in ${params.ENVIRONMENT} environment
+                4. If the sealed-secrets controller is running in each cluster
                 
-                Last known state of working directory:
-                """
-                sh """
-                    ls -la ${WORK_DIR} || echo "Work directory not accessible"
-                    ls -la ${WORKSPACE}/${ARTIFACTS_DIR} || echo "No artifacts generated"
+                Target clusters: ${clusterNames}
                 """
             }
         }
