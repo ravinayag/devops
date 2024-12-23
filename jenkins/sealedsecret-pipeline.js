@@ -3,7 +3,11 @@ pipeline {
 
     parameters {
         string(name: 'NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace for the sealed secret')
-        credentials(name: 'KUBECONFIG_CREDENTIAL_ID', description: 'Select the kubeconfig credential to use', required: true, credentialType: 'Secret file')
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['Non-Production', 'Production'],
+            description: 'Select the target environment'
+        )
         base64File(name: 'SECRETS_YAML', description: 'Upload Secrets.yaml file to apply to the cluster')
         booleanParam(name: 'STORE_CERT', defaultValue: true, description: 'Store the public certificate for future use')
     }
@@ -15,16 +19,41 @@ pipeline {
         CERT_FILE = 'sealed-secrets-cert.pem'
         DOCKER_IMAGE = 'docker-dind-kube-secret'
         ARTIFACTS_DIR = 'sealed-secrets-artifacts'
+        // Predefined credential IDs for different environments
+        PROD_KUBECONFIG_ID = 'Production'
+        NONPROD_KUBECONFIG_ID = 'Stage' // Default to Stage for Non-Production
     }
 
     stages {
+        stage('Environment Validation') {
+            steps {
+                script {
+                    echo "=== Environment Validation ==="
+                    
+                    // Set the appropriate kubeconfig credential ID based on environment
+                    env.SELECTED_KUBECONFIG_ID = params.ENVIRONMENT == 'Production' 
+                        ? env.PROD_KUBECONFIG_ID 
+                        : env.NONPROD_KUBECONFIG_ID
+
+                    echo "Selected Environment: ${params.ENVIRONMENT}"
+                    echo "Using kubeconfig credential: ${env.SELECTED_KUBECONFIG_ID}"
+
+                    // Additional validation for Production environment
+                    if (params.ENVIRONMENT == 'Production') {
+                        // Add any production-specific validations here
+                        echo "Production environment selected - applying additional safeguards"
+                        // Example: You could add approval steps or additional validations
+                    }
+                }
+            }
+        }
+
         stage('Prepare Workspace') {
             steps {
                 script {
-                    echo "=== Stage: Prepare Workspace ==="
+                    echo "=== Prepare Workspace ==="
                     echo "Creating directories and cleaning up old files..."
                     
-                    // Create working and artifacts directories
                     sh """
                         set -x
                         mkdir -p ${WORK_DIR}
@@ -45,21 +74,17 @@ pipeline {
                     echo "Processing base64 encoded secret..."
                     if (params.SECRETS_YAML) {
                         echo "Secret data provided, writing to file..."
-                        // Write base64 content to file
                         writeFile file: "${WORK_DIR}/secrets.yaml.b64", text: params.SECRETS_YAML
                         
-                        echo "Checking base64 file contents..."
                         sh """
                             set -x
                             ls -l ${WORK_DIR}/secrets.yaml.b64
-                            echo "File size: \$(stat -f%z ${WORK_DIR}/secrets.yaml.b64 || stat -c%s ${WORK_DIR}/secrets.yaml.b64)"
                             
                             echo "Decoding base64 content..."
                             base64 --decode < ${WORK_DIR}/secrets.yaml.b64 > ${WORK_DIR}/secrets.yaml
                             
                             echo "Checking decoded file..."
                             ls -l ${WORK_DIR}/secrets.yaml
-                            echo "Decoded file size: \$(stat -f%z ${WORK_DIR}/secrets.yaml || stat -c%s ${WORK_DIR}/secrets.yaml)"
                             
                             echo "First few lines of decoded file (sanitized):"
                             head -n 5 ${WORK_DIR}/secrets.yaml | grep -v 'data:' || echo "File appears to be empty"
@@ -67,19 +92,6 @@ pipeline {
                     } else {
                         error "SECRETS_YAML parameter is not provided"
                     }
-
-                    echo "Validating YAML format..."
-                    sh """
-                        set -x
-                        if command -v yamllint >/dev/null 2>&1; then
-                            yamllint ${WORK_DIR}/secrets.yaml || echo "YAML validation failed but continuing..."
-                        else
-                            echo "yamllint not installed, skipping YAML validation"
-                        fi
-                        
-                        echo "Final work directory contents:"
-                        ls -laR ${WORK_DIR}
-                    """
                 }
             }
         }
@@ -87,9 +99,9 @@ pipeline {
         stage('Apply K8s Config & Fetch Public Certificate') {
             steps {
                 script {
-                    echo "=== Stage: Apply K8s Config & Fetch Public Certificate ==="
+                    echo "=== Apply K8s Config & Fetch Public Certificate ==="
                     
-                    withCredentials([file(credentialsId: params.KUBECONFIG_CREDENTIAL_ID, variable: 'KUBECONFIG')]) {
+                    withCredentials([file(credentialsId: env.SELECTED_KUBECONFIG_ID, variable: 'KUBECONFIG')]) {
                         echo "Checking for required files..."
                         sh """
                             set -x
@@ -103,7 +115,17 @@ pipeline {
                         if (fileExists("${WORK_DIR}/secrets.yaml")) {
                             echo "Secret file exists, proceeding with certificate fetch..."
                             
-                            // Fetch certificate
+                            sh """
+                                set -x
+                                echo "Listing the pods..."
+                                docker run --rm \
+                                -v \${KUBECONFIG}:/tmp/kubeconfig \
+                                -v ${WORK_DIR}/secrets.yaml:/tmp/secrets.yaml \
+                                --name dind-service \
+                                ${DOCKER_IMAGE} kubectl get pods -A --kubeconfig=/tmp/kubeconfig
+                                
+                            """
+                            
                             sh """
                                 set -x
                                 echo "Fetching sealed secrets certificate..."
@@ -122,7 +144,6 @@ pipeline {
                             """
 
                             if (params.STORE_CERT) {
-                                echo "Storing certificate as artifact..."
                                 sh """
                                     set -x
                                     cp ${WORK_DIR}/${CERT_FILE} ${WORKSPACE}/${ARTIFACTS_DIR}/
@@ -155,6 +176,7 @@ pipeline {
                             sh """
                                 set -x
                                 echo "Generated on: \$(date)" > ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
+                                echo "Environment: ${params.ENVIRONMENT}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
                                 echo "Namespace: ${params.NAMESPACE}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
                                 echo "Controller: ${CONTROLLER_NAME}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
                                 echo "Controller Namespace: ${CONTROLLER_NAMESPACE}" >> ${WORKSPACE}/${ARTIFACTS_DIR}/README.txt
@@ -193,6 +215,7 @@ pipeline {
                 def artifactMsg = """
                 Pipeline completed successfully!
                 
+                Environment: ${params.ENVIRONMENT}
                 Available artifacts in Jenkins UI (Build Artifacts section):
                 1. sealed-secrets.yaml - Encrypted sealed secret
                 2. ${CERT_FILE} - Public certificate (if enabled)
@@ -213,7 +236,7 @@ pipeline {
                 Pipeline failed. Please check:
                 1. The logs above for detailed error messages
                 2. Whether the secret YAML was properly encoded
-                3. If kubeconfig credentials are correct
+                3. If kubeconfig credentials are correct for ${params.ENVIRONMENT} environment
                 4. If the sealed-secrets controller is running in the cluster
                 
                 Last known state of working directory:
