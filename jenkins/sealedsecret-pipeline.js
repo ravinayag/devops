@@ -171,46 +171,35 @@ pipeline {
         success {
             script {
                 echo "=== Build Successful ==="
-                def clusterIds = env.CLUSTER_IDS.split(',')
                 def successMsg = """Pipeline completed successfully!
                 
                 Environment: ${params.ENVIRONMENT}
-                Processed Clusters: ${clusterIds.collect { env["CLUSTER_${it}_NAME"] }.join(', ')}
                 
-                Available artifacts in Jenkins UI (Build Artifacts section):"""
-                
-                clusterIds.each { clusterId ->
-                    successMsg += """
-                    ${env["CLUSTER_${clusterId}_NAME"]}:
-                    - ${ARTIFACTS_DIR}/${clusterId}/sealed-secrets.yaml - Encrypted sealed secret
-                    - ${ARTIFACTS_DIR}/${clusterId}/${CERT_FILE} - Public certificate (if enabled)
-                    - ${ARTIFACTS_DIR}/${clusterId}/README.txt - Generation details and instructions"""
-                }
-                
-                successMsg += """
+                Available artifacts in Jenkins UI (Build Artifacts section):
+                - ${ARTIFACTS_DIR}/*/sealed-secrets.yaml - Encrypted sealed secrets
+                - ${ARTIFACTS_DIR}/*/${CERT_FILE} - Public certificates (if enabled)
+                - ${ARTIFACTS_DIR}/*/README.txt - Generation details and instructions
                 
                 To download:
                 1. Click on this build number
                 2. Select 'Build Artifacts' in the left sidebar
-                3. Find files in the ${ARTIFACTS_DIR}/<cluster-id>/ directory
+                3. Find files in the ${ARTIFACTS_DIR}/ directory
                 """
                 echo successMsg
             }
         }
         failure {
             script {
-                def clusterIds = env.CLUSTER_IDS.split(',')
-                def clusterNames = clusterIds.collect { env["CLUSTER_${it}_NAME"] }.join(', ')
-                
-                echo """=== Build Failed ===
+                def failureMsg = """=== Build Failed ===
                 Pipeline failed. Please check:
                 1. The logs above for detailed error messages
                 2. Whether the secret YAML was properly encoded
                 3. If kubeconfig credentials are correct for all clusters in ${params.ENVIRONMENT} environment
                 4. If the sealed-secrets controller is running in each cluster
                 
-                Target clusters: ${clusterNames}
+                Environment: ${params.ENVIRONMENT}
                 """
+                echo failureMsg
             }
         }
     }
