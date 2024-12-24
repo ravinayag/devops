@@ -65,8 +65,16 @@ pipeline {
                         mkdir -p ${WORK_DIR}
                         mkdir -p ${WORKSPACE}/${ARTIFACTS_DIR}
                         rm -f ${WORK_DIR}/* || true
-                        rm -f ${WORKSPACE}/${ARTIFACTS_DIR}/* || true
+                        rm -rf ${WORKSPACE}/${ARTIFACTS_DIR}/* || true
+                        
+                        # Environment-specific cleanup
+                        if [ "${params.ENVIRONMENT}" = "Non-Production" ]; then
+                            rm -rf ${WORKSPACE}/${ARTIFACTS_DIR}/prod-*
+                        else
+                            rm -rf ${WORKSPACE}/${ARTIFACTS_DIR}/non-prod-*
+                        fi
                     """
+
 
                     if (params.SECRETS_YAML) {
                         writeFile file: "${WORK_DIR}/secrets.yaml.b64", text: params.SECRETS_YAML
@@ -119,10 +127,6 @@ pipeline {
                                             --fetch-cert > ${clusterWorkDir}/${CERT_FILE}
                                     """
 
-                                    if (params.STORE_CERT) {
-                                        sh "cp ${clusterWorkDir}/${CERT_FILE} ${clusterArtifactsDir}/"
-                                    }
-
                                     sh """
                                         set -x
                                         docker run --rm \
@@ -165,7 +169,13 @@ pipeline {
                 echo "=== Post-Build Actions ==="
                 echo "Cleaning up temporary files..."
                 sh "rm -rf ${WORK_DIR}"
-                archiveArtifacts artifacts: "${ARTIFACTS_DIR}/**/*", fingerprint: true
+                if (params.ENVIRONMENT == 'Production') {
+                    archiveArtifacts artifacts: "${ARTIFACTS_DIR}/prod-*/**/README.txt,${ARTIFACTS_DIR}/prod-*/**/sealed-secrets.yaml", fingerprint: true
+                } else {
+                    archiveArtifacts artifacts: "${ARTIFACTS_DIR}/non-prod-*/**/README.txt,${ARTIFACTS_DIR}/non-prod-*/**/sealed-secrets.yaml", fingerprint: true
+
+                }                
+
             }
         }
         success {
@@ -177,7 +187,6 @@ pipeline {
                 
                 Available artifacts in Jenkins UI (Build Artifacts section):
                 - ${ARTIFACTS_DIR}/*/sealed-secrets.yaml - Encrypted sealed secrets
-                - ${ARTIFACTS_DIR}/*/${CERT_FILE} - Public certificates (if enabled)
                 - ${ARTIFACTS_DIR}/*/README.txt - Generation details and instructions
                 
                 To download:
